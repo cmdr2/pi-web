@@ -240,6 +240,8 @@ export function ChatMinimap({
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [minimapHeight, setMinimapHeight] = useState(600);
   const [minimapHovered, setMinimapHovered] = useState(false);
+  const [previewPinned, setPreviewPinned] = useState(false);
+  const previewPinnedRef = useRef(false);
   const [mouseYRatio, setMouseYRatio] = useState<number | null>(null);
   const draggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -544,6 +546,8 @@ export function ChatMinimap({
     cancelPreviewHide();
     previewHideTimerRef.current = setTimeout(() => {
       previewHideTimerRef.current = null;
+      previewPinnedRef.current = false;
+      setPreviewPinned(false);
       setMinimapHovered(false);
       setMouseYRatio(null);
     }, PREVIEW_HIDE_DELAY);
@@ -551,11 +555,31 @@ export function ChatMinimap({
 
   useEffect(() => () => cancelPreviewHide(), [cancelPreviewHide]);
 
+  // While the preview is pinned (opened by a click on the rail), a click
+  // anywhere outside the minimap closes it.
+  useEffect(() => {
+    if (!previewPinned) return;
+    const onDocMouseDown = (event: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      if (event.target instanceof Node && container.contains(event.target)) return;
+      cancelPreviewHide();
+      previewPinnedRef.current = false;
+      setPreviewPinned(false);
+      setMinimapHovered(false);
+      setMouseYRatio(null);
+    };
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [previewPinned, cancelPreviewHide]);
+
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (!visible) return;
 
     draggingRef.current = true;
     showPreview();
+    previewPinnedRef.current = true;
+    setPreviewPinned(true);
     const rect = event.currentTarget.getBoundingClientRect();
     const pointerRatio = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
     setMouseYRatio(pointerRatio);
@@ -605,8 +629,15 @@ export function ChatMinimap({
     <div
       ref={containerRef}
       onMouseDown={handleMouseDown}
-      onMouseEnter={showPreview}
-      onMouseLeave={schedulePreviewHide}
+      onMouseLeave={() => {
+        // While pinned, don't hide on leave — only clear the stale hover
+        // highlight. Otherwise fall back to the hover-based hide timer.
+        if (previewPinnedRef.current) {
+          setMouseYRatio(null);
+        } else {
+          schedulePreviewHide();
+        }
+      }}
       onMouseMove={(event) => {
         const rect = event.currentTarget.getBoundingClientRect();
         setMouseYRatio((event.clientY - rect.top) / rect.height);
@@ -636,7 +667,7 @@ export function ChatMinimap({
       />
 
       {positionedNodes.map((node) => {
-        const isNearest = minimapHovered && nearestNode?.index === node.index;
+        const isNearest = (minimapHovered || previewPinned) && nearestNode?.index === node.index;
         const isActive = activeIndex === node.index;
 
         return (
@@ -674,7 +705,7 @@ export function ChatMinimap({
         );
       })}
 
-      {minimapHovered && allNodes.length > 0 && (
+      {(minimapHovered || previewPinned) && allNodes.length > 0 && (
         <div
           ref={previewBoxRef}
           className={styles.preview}
