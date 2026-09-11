@@ -12,8 +12,6 @@ import { openFileTab, saveFileViewerState } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
-import { SystemPromptPanel } from "./SystemPromptPanel";
-import { ToolDefinitionsPanel } from "./ToolDefinitionsPanel";
 import { AgentSessionPanel } from "./AgentSessionPanel";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
@@ -59,7 +57,6 @@ import type { ProjectTrustStatus } from "@/lib/api-types";
 import type { ChatInputHandle } from "./ChatInput";
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { FileViewerState } from "@/lib/file-viewer-state";
-import type { ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
 import { getLastSettingsSection, type SettingsSection } from "@/lib/settings-navigation";
 
@@ -244,8 +241,7 @@ export function AppShell() {
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
-  const themeBtnRef = useRef<HTMLButtonElement>(null);
-  const languageBtnRef = useRef<HTMLButtonElement>(null);
+  const actionsBtnRef = useRef<HTMLButtonElement>(null);
   const selectionMenuRef = useRef<HTMLDivElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
@@ -262,28 +258,6 @@ export function AppShell() {
 
   const handleBranchLeafChange = useCallback((leafId: string | null) => {
     branchLeafChangeFnRef.current?.(leafId);
-  }, []);
-
-  const [systemPrompt, setSystemPrompt] = useState<string | null>(null);
-  const [systemTools, setSystemTools] = useState<ToolEntry[] | null>(null);
-  const [systemInfoLoading, setSystemInfoLoading] = useState(false);
-  const systemInfoLoaderRef = useRef<(() => Promise<void>) | null>(null);
-  const systemInfoLoadIdRef = useRef(0);
-  const systemBtnRef = useRef<HTMLButtonElement>(null);
-
-  const handleSystemPromptChange = useCallback((prompt: string | null) => {
-    setSystemPrompt(prompt);
-    setSystemInfoLoading(false);
-  }, []);
-
-  const handleSystemToolsChange = useCallback((tools: ToolEntry[] | null) => {
-    setSystemTools(tools);
-  }, []);
-
-  const handleSystemInfoLoaderChange = useCallback((loader: (() => Promise<void>) | null) => {
-    systemInfoLoadIdRef.current += 1;
-    systemInfoLoaderRef.current = loader;
-    setSystemInfoLoading(false);
   }, []);
 
   // Session stats (tokens + cost) — populated by ChatWindow, displayed in top bar
@@ -319,7 +293,7 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "system" | "tools" | "session" | "language" | "theme" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "session" | "language" | "theme" | "actions" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -335,34 +309,13 @@ export function AppShell() {
   }, [hasSubagentSessions]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session" | "language" | "theme",
+    panel: "agents" | "branches" | "session" | "language" | "theme" | "actions",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
     if (isMobile && isNarrowMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
   }, [isMobile, isNarrowMobile]);
-
-  const handleSystemInfoToggle = useCallback((
-    panel: "system" | "tools",
-    keepMobileToolbarOpen = false,
-  ) => {
-    const opening = activeTopPanel !== panel;
-    toggleTopPanel(panel, keepMobileToolbarOpen);
-    if (!opening || systemInfoLoading) return;
-
-    const load = systemInfoLoaderRef.current;
-    if (!load) return;
-    const loadId = ++systemInfoLoadIdRef.current;
-    setSystemInfoLoading(true);
-    void load().catch((error) => {
-      console.error("Failed to load system information:", error);
-    }).finally(() => {
-      if (systemInfoLoadIdRef.current === loadId) {
-        setSystemInfoLoading(false);
-      }
-    });
-  }, [activeTopPanel, systemInfoLoading, toggleTopPanel]);
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
@@ -423,11 +376,11 @@ export function AppShell() {
   }, [isMobile, isNarrowMobile, selectedSession?.id, newSessionDraftId]);
 
   useLayoutEffect(() => {
-    if (activeTopPanel !== "theme" && activeTopPanel !== "language") return;
+    if (activeTopPanel !== "theme" && activeTopPanel !== "language" && activeTopPanel !== "actions") return;
     const menu = selectionMenuRef.current;
-    const trigger = activeTopPanel === "theme" ? themeBtnRef.current : languageBtnRef.current;
+    const trigger = actionsBtnRef.current;
     if (!menu || !trigger) return;
-    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>("[role=menuitemradio]"));
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>("[role=menuitemradio], [role=menuitem]"));
     (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0])?.focus();
 
     const dismissOutside = (event: Event) => {
@@ -467,8 +420,8 @@ export function AppShell() {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
       const topBarRect = topBarRef.current!.getBoundingClientRect();
-      if ((activeTopPanel === "language" || activeTopPanel === "theme") && !isMobile) {
-        const button = activeTopPanel === "theme" ? themeBtnRef.current : languageBtnRef.current;
+      if ((activeTopPanel === "language" || activeTopPanel === "theme" || activeTopPanel === "actions") && !isMobile) {
+        const button = actionsBtnRef.current;
         if (!button) return;
         const buttonRect = button.getBoundingClientRect();
         const width = Math.min(SELECTION_MENU_WIDTH, topBarRect.width);
@@ -492,8 +445,7 @@ export function AppShell() {
     update();
     const ro = new ResizeObserver(update);
     ro.observe(topBarRef.current);
-    if (languageBtnRef.current) ro.observe(languageBtnRef.current);
-    if (themeBtnRef.current) ro.observe(themeBtnRef.current);
+    if (actionsBtnRef.current) ro.observe(actionsBtnRef.current);
     return () => ro.disconnect();
   }, [activeTopPanel, isMobile]);
 
@@ -724,9 +676,6 @@ export function AppShell() {
     setSessionKey((k) => k + 1);
     setBranchTree([]);
     setBranchActiveLeafId(null);
-    setSystemPrompt(null);
-    setSystemTools(null);
-    setSystemInfoLoading(false);
     setActiveTopPanel(null);
     if (currentProject !== newProject) {
       // File tabs are keyed by absolute path, so tabs opened in the previous
@@ -781,9 +730,6 @@ export function AppShell() {
     setBranchTree([]);
     setBranchActiveLeafId(null);
     branchLeafChangeFnRef.current = null;
-    setSystemPrompt(null);
-    setSystemTools(null);
-    setSystemInfoLoading(false);
     setInitialSessionRestored(true);
     // On mobile, collapse the overlay drawer so the chat is revealed after pick.
     if (isMobile && !isRestore) setSidebarOpen(false);
@@ -810,9 +756,6 @@ export function AppShell() {
     setSessionKey((k) => k + 1);
     setBranchTree([]);
     setBranchActiveLeafId(null);
-    setSystemPrompt(null);
-    setSystemTools(null);
-    setSystemInfoLoading(false);
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
@@ -1025,9 +968,6 @@ export function AppShell() {
       setSessionKey((k) => k + 1);
       setBranchTree([]);
       setBranchActiveLeafId(null);
-      setSystemPrompt(null);
-      setSystemTools(null);
-      setSystemInfoLoading(false);
       setActiveTopPanel(null);
       router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
     }
@@ -1247,77 +1187,47 @@ export function AppShell() {
     </>
   );
 
-  const renderThemeButton = (mobile: boolean) => (
+  const renderActionsMenuRow = (options: {
+    label: string;
+    icon: React.ReactNode;
+    disabled?: boolean;
+    active?: boolean;
+    title?: string;
+    onClick: () => void;
+  }) => (
     <button
-      ref={themeBtnRef}
       type="button"
-      onClick={() => toggleTopPanel("theme", mobile)}
-      title={translate(themeLabelKey)}
-      aria-label={translate(themeLabelKey)}
-      aria-haspopup="menu"
-      aria-expanded={activeTopPanel === "theme"}
-      aria-pressed={activeTopPanel === "theme"}
-      style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-        background: activeTopPanel === "theme" ? "var(--bg-selected)" : "none",
-        border: "none", borderRight: "1px solid var(--border)",
-        color: activeTopPanel === "theme" ? "var(--text)" : "var(--text-muted)",
-        cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+      role="menuitem"
+      onClick={() => {
+        if (options.disabled) return;
+        options.onClick();
       }}
-      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-      onMouseLeave={(event) => { event.currentTarget.style.color = activeTopPanel === "theme" ? "var(--text)" : "var(--text-muted)"; }}
-      data-mobile-toolbar-action={mobile ? "theme" : undefined}
-    >
-      <ThemeIcon preference={preference} size={16} />
-    </button>
-  );
-
-  const renderLanguageButton = (mobile: boolean) => (
-    <button
-      ref={languageBtnRef}
-      type="button"
-      onClick={() => toggleTopPanel("language", mobile)}
-      title={translate("common.language")}
-      aria-label={translate("common.language")}
-      aria-haspopup="menu"
-      aria-expanded={activeTopPanel === "language"}
-      aria-pressed={activeTopPanel === "language"}
+      disabled={options.disabled}
+      title={options.title ?? options.label}
+      aria-label={options.label}
       style={{
-        display: "flex", alignItems: "center", justifyContent: "center",
-        width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-        background: activeTopPanel === "language" ? "var(--bg-selected)" : "none",
-        border: "none", borderRight: "1px solid var(--border)",
-        color: activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)",
-        cursor: "pointer", flexShrink: 0, transition: "color 0.12s",
+        display: "flex", alignItems: "center", gap: 8,
+        width: "100%", minHeight: 34, padding: "0 10px",
+        border: "none", borderRadius: 4,
+        background: options.active ? "var(--bg-selected)" : "transparent",
+        color: options.disabled ? "var(--text-dim)" : "var(--text)",
+        cursor: options.disabled ? "not-allowed" : "pointer", textAlign: "left", fontSize: 12,
+        opacity: options.disabled ? 0.55 : 1,
+        transition: "background 0.1s",
       }}
-      onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+      onMouseEnter={(event) => {
+        if (options.disabled || options.active) return;
+        event.currentTarget.style.background = "var(--bg-hover)";
+      }}
       onMouseLeave={(event) => {
-        event.currentTarget.style.color = activeTopPanel === "language" ? "var(--text)" : "var(--text-muted)";
+        if (options.active) return;
+        event.currentTarget.style.background = "transparent";
       }}
-      data-mobile-toolbar-action={mobile ? "language" : undefined}
     >
-      <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="m5 8 6 6" />
-        <path d="m4 14 6-6 2-3" />
-        <path d="M2 5h12" />
-        <path d="M7 2h1" />
-        <path d="m22 22-5-10-5 10" />
-        <path d="M14 18h6" />
-      </svg>
+      {options.icon}
+      <span>{options.label}</span>
     </button>
   );
-
   const renderProjectTrustWarning = (mobileBanner: boolean) => {
     if (!showChat || !projectTrust?.requiresTrust || projectTrust.trusted) return null;
     return (
@@ -1376,67 +1286,6 @@ export function AppShell() {
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
-        <button
-          type="button"
-          onClick={() => {
-            handleViewFullHistory();
-            if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
-          }}
-          disabled={!selectedSession}
-          title={selectedSession ? translate("history.full") : translate("history.unsaved")}
-          aria-label={translate("history.full")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-            height: "100%",
-            padding: mobile ? 0 : "0 12px",
-            background: "none",
-            border: "none",
-            borderTop: "2px solid transparent",
-            borderRight: "1px solid var(--border)",
-            color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-            cursor: selectedSession ? "pointer" : "not-allowed",
-            opacity: selectedSession ? 1 : 0.45,
-            flexShrink: 0,
-            fontSize: 11,
-            whiteSpace: "nowrap",
-            transition: "color 0.1s, background 0.1s, opacity 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (!selectedSession) return;
-            event.currentTarget.style.color = "var(--text)";
-            event.currentTarget.style.background = "var(--bg-hover)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = selectedSession ? "var(--text-muted)" : "var(--text-dim)";
-            event.currentTarget.style.background = "none";
-          }}
-          data-mobile-toolbar-action={mobile ? "history" : undefined}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-              flexShrink: 0,
-            }}
-            aria-hidden="true"
-          >
-            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-            <path d="M3 3v5h5" />
-            <path d="M12 7v5l3 2" />
-          </svg>
-          {!mobile && <span>{translate("history.label")}</span>}
-        </button>
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
           const hasMessages = Boolean(
@@ -1593,79 +1442,39 @@ export function AppShell() {
           />
         ))}
         <button
-          ref={systemBtnRef}
+          ref={actionsBtnRef}
           type="button"
-          onClick={() => handleSystemInfoToggle("system", mobile)}
-          disabled={mobile && !showChat}
-          title={translate("system.prompt")}
-          aria-label={translate("system.prompt")}
-          aria-pressed={activeTopPanel === "system"}
+          onClick={() => toggleTopPanel("actions", true)}
+          title={translate("actions.title")}
+          aria-label={translate("actions.title")}
+          aria-haspopup="menu"
+          aria-expanded={activeTopPanel === "actions"}
           style={{
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
             width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
             height: "100%", padding: mobile ? 0 : "0 12px",
-            background: activeTopPanel === "system" ? "var(--bg-selected)" : "none",
+            background: activeTopPanel === "actions" ? "var(--bg-selected)" : "none",
             border: "none",
-            borderTop: activeTopPanel === "system" ? "2px solid var(--accent)" : "2px solid transparent",
+            borderTop: activeTopPanel === "actions" ? "2px solid var(--accent)" : "2px solid transparent",
             borderRight: "1px solid var(--border)",
-            cursor: mobile && !showChat ? "not-allowed" : "pointer",
-            color: activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)",
-            opacity: mobile && !showChat ? 0.45 : 1,
-            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+            color: activeTopPanel === "actions" ? "var(--text)" : "var(--text-muted)",
+            cursor: "pointer", flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+            transition: "color 0.1s, background 0.1s",
           }}
-          onMouseEnter={(event) => {
-            if (mobile && !showChat) return;
-            event.currentTarget.style.color = "var(--text)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = activeTopPanel === "system" ? "var(--text)" : "var(--text-muted)";
-          }}
-          data-mobile-toolbar-action={mobile ? "system" : undefined}
+          onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={(event) => { event.currentTarget.style.color = activeTopPanel === "actions" ? "var(--text)" : "var(--text-muted)"; }}
+          data-mobile-toolbar-action={mobile ? "actions" : undefined}
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemPrompt ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="8" y1="13" x2="16" y2="13" />
-            <line x1="8" y1="17" x2="13" y2="17" />
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="16" y2="12" /><line x1="4" y1="17" x2="12" y2="17" />
           </svg>
-          {!mobile && <span>{translate("system.label")}</span>}
+          {!mobile && <span>{translate("actions.title")}</span>}
+          {!mobile && (
+            <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+              <polyline points="2 3.5 5 6.5 8 3.5" />
+            </svg>
+          )}
         </button>
-        <button
-          type="button"
-          onClick={() => handleSystemInfoToggle("tools", mobile)}
-          disabled={mobile && !showChat}
-          title={translate("tools.title")}
-          aria-label={translate("tools.title")}
-          aria-pressed={activeTopPanel === "tools"}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-            height: "100%", padding: mobile ? 0 : "0 12px",
-            background: activeTopPanel === "tools" ? "var(--bg-selected)" : "none",
-            border: "none",
-            borderTop: activeTopPanel === "tools" ? "2px solid var(--accent)" : "2px solid transparent",
-            borderRight: "1px solid var(--border)",
-            cursor: mobile && !showChat ? "not-allowed" : "pointer",
-            color: activeTopPanel === "tools" ? "var(--text)" : "var(--text-muted)",
-            opacity: mobile && !showChat ? 0.45 : 1,
-            fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (mobile && !showChat) return;
-            event.currentTarget.style.color = "var(--text)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = activeTopPanel === "tools" ? "var(--text)" : "var(--text-muted)";
-          }}
-          data-mobile-toolbar-action={mobile ? "tools" : undefined}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: systemTools?.some((tool) => tool.active) ? "var(--accent)" : "var(--text-dim)", flexShrink: 0 }} aria-hidden="true">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z" />
-          </svg>
-          {!mobile && <span>{translate("tools.label")}</span>}
-        </button>
-        {mobile && renderThemeButton(true)}
-        {mobile && renderLanguageButton(true)}
       </div>
     );
   };
@@ -2109,8 +1918,6 @@ export function AppShell() {
           )}
           {!isMobile && (
             <>
-              {renderThemeButton(false)}
-              {renderLanguageButton(false)}
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
               {renderSessionStatsButton(false)}
@@ -2162,7 +1969,7 @@ export function AppShell() {
                       type="button"
                       onClick={() => {
                         setLocale(plugin.id as typeof locale);
-                        languageBtnRef.current?.focus();
+                        actionsBtnRef.current?.focus();
                         setActiveTopPanel(null);
                       }}
                       role="menuitemradio"
@@ -2207,7 +2014,7 @@ export function AppShell() {
                       type="button"
                       onClick={() => {
                         setThemePreference(option.id);
-                        themeBtnRef.current?.focus();
+                        actionsBtnRef.current?.focus();
                         setActiveTopPanel(null);
                       }}
                       role="menuitemradio"
@@ -2242,19 +2049,56 @@ export function AppShell() {
                   onSelectSession={handleSelectSession}
                 />
               )}
-              {activeTopPanel === "system" && (
-                <SystemPromptPanel
-                  loading={systemInfoLoading}
-                  prompt={systemPrompt}
-                  translate={translate}
-                />
-              )}
-              {activeTopPanel === "tools" && (
-                <ToolDefinitionsPanel
-                  loading={systemInfoLoading}
-                  tools={systemTools}
-                  translate={translate}
-                />
+              {activeTopPanel === "actions" && (
+                <div
+                  ref={selectionMenuRef}
+                  role="menu"
+                  aria-label={translate("actions.title")}
+                  style={{
+                    background: "var(--bg-panel)",
+                    borderLeft: "1px solid var(--border)",
+                    borderRight: "1px solid var(--border)",
+                    borderBottom: "1px solid var(--border)",
+                    overflow: "hidden",
+                    padding: 4,
+                  }}
+                >
+                  {renderActionsMenuRow({
+                    icon: (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-muted)", flexShrink: 0 }} aria-hidden="true">
+                        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                        <path d="M3 3v5h5" />
+                        <path d="M12 7v5l3 2" />
+                      </svg>
+                    ),
+                    label: translate("history.label"),
+                    disabled: !selectedSession,
+                    title: selectedSession ? translate("history.full") : translate("history.unsaved"),
+                    onClick: () => {
+                      handleViewFullHistory();
+                      setActiveTopPanel(null);
+                    },
+                  })}
+                  {renderActionsMenuRow({
+                    icon: <ThemeIcon preference={preference} size={14} />,
+                    label: translate(themeLabelKey),
+                    onClick: () => toggleTopPanel("theme", true),
+                  })}
+                  {renderActionsMenuRow({
+                    icon: (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--text-muted)", flexShrink: 0 }} aria-hidden="true">
+                        <path d="m5 8 6 6" />
+                        <path d="m4 14 6-6 2-3" />
+                        <path d="M2 5h12" />
+                        <path d="M7 2h1" />
+                        <path d="m22 22-5-10-5 10" />
+                        <path d="M14 18h6" />
+                      </svg>
+                    ),
+                    label: translate("common.language"),
+                    onClick: () => toggleTopPanel("language", true),
+                  })}
+                </div>
               )}
               {activeTopPanel === "session" && (
                 <div className="session-info-popover" style={{
@@ -2489,9 +2333,6 @@ export function AppShell() {
               modelsRefreshKey={modelsRefreshKey}
               chatInputRef={chatInputRef}
               onBranchDataChange={handleBranchDataChange}
-              onSystemPromptChange={handleSystemPromptChange}
-              onSystemToolsChange={handleSystemToolsChange}
-              onSystemInfoLoaderChange={handleSystemInfoLoaderChange}
               onSessionStatsChange={handleSessionStatsChange}
               onSessionStatsPanelOpen={openSessionStatsPanel}
               onContextUsageChange={handleContextUsageChange}

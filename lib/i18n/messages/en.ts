@@ -6,6 +6,7 @@ export const enLocale: LocalePlugin = {
   label: "English",
   messages: {
     "common.ok": "OK",
+    "actions.title": "Actions",
     "common.language": "Language",
     "common.models": "Models",
     "common.skills": "Skills",

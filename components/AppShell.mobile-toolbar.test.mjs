@@ -19,8 +19,12 @@ test("uses a compact narrow-mobile toolbar with a floating action layer", () => 
     /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: TOP_BAR_ICON_BUTTON_SIZE/,
   );
 
-  for (const action of ["history", "name", "agents", "branches", "system", "tools", "theme", "language"]) {
+  for (const action of ["name", "agents", "branches", "actions"]) {
     assert.match(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${action}"`));
+  }
+
+  for (const removed of ["history", "system", "tools", "theme", "language"]) {
+    assert.doesNotMatch(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${removed}"`));
   }
 });
 
@@ -62,21 +66,34 @@ test("closes the mobile action layer on outside click, Escape, layout changes, a
 
 test("keeps the mobile action layer open after using an expanded action", () => {
   const toggleTopPanel = source.match(/const toggleTopPanel = useCallback\([\s\S]*?\n  \}, \[isMobile, isNarrowMobile\]\);/)?.[0];
-  const historyHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?handleViewFullHistory\(\);[\s\S]*?\n          \}\}/)?.[0];
   const autoNameHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?void handleAutoName\(\);[\s\S]*?\n              \}\}/)?.[0];
 
-  for (const handler of [toggleTopPanel, historyHandler, autoNameHandler]) {
+  for (const handler of [toggleTopPanel, autoNameHandler]) {
     assert.ok(handler);
     assert.doesNotMatch(handler, /setMobileToolbarMoreOpen\(false\)/);
     assert.match(handler, /setMobileToolbarMoreOpen\(true\)/);
   }
 
   assert.match(source, /toggleTopPanel\("branches", true\)/);
-  assert.match(source, /handleSystemInfoToggle\("system", mobile\)/);
-  assert.match(source, /handleSystemInfoToggle\("tools", mobile\)/);
-  assert.match(source, /toggleTopPanel\("language", mobile\)/);
-  assert.match(source, /toggleTopPanel\("theme", mobile\)/);
+  assert.match(source, /toggleTopPanel\("actions", true\)/);
   assert.match(source, /onClick=\{\(\) => toggleTopPanel\("session"\)\}/);
+});
+
+test("consolidates History, Theme and Language into an Actions dropdown", () => {
+  assert.match(source, /const actionsBtnRef = useRef<HTMLButtonElement>\(null\)/);
+  assert.match(source, /toggleTopPanel\("actions"|toggleTopPanel\("actions", true\)/);
+  assert.match(source, /aria-haspopup="menu"[\s\S]*?aria-expanded=\{activeTopPanel === "actions"\}/);
+  assert.match(source, /activeTopPanel === "actions" && \(\s*<div\s*ref=\{selectionMenuRef\}\s*role="menu"/);
+  assert.match(source, /handleViewFullHistory\(\);\s*setActiveTopPanel\(null\)/);
+  assert.match(source, /toggleTopPanel\("theme", true\)/);
+  assert.match(source, /toggleTopPanel\("language", true\)/);
+  // The theme and language menus anchor to the Actions trigger.
+  assert.match(source, /activeTopPanel !== "theme" && activeTopPanel !== "language" && activeTopPanel !== "actions"/);
+  assert.match(source, /const trigger = actionsBtnRef\.current/);
+  // System Prompt and Tools buttons and panels are gone.
+  assert.doesNotMatch(source, /handleSystemInfoToggle|SystemPromptPanel|ToolDefinitionsPanel/);
+  assert.doesNotMatch(source, /activeTopPanel === "system"|activeTopPanel === "tools"/);
+  assert.doesNotMatch(source, /renderThemeButton|renderLanguageButton|themeBtnRef|languageBtnRef/);
 });
 
 test("opens the theme selector as a shared menu with every palette", () => {
