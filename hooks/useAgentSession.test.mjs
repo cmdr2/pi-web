@@ -142,6 +142,34 @@ test("fresh sessions use the preference while persisted and live sessions restor
   assert.doesNotMatch(loadToolsSource, /setPreferredToolPreset/);
 });
 
+test("first user messages expose both branch actions and edit before their own entry", () => {
+  const navigateSource = source.slice(
+    source.indexOf("  const handleNavigate = useCallback"),
+    source.indexOf("  const handleLeafChange = useCallback"),
+  );
+
+  assert.match(chatWindowSource, /onFork=\{sessionBusy \|\| isNew \? undefined : handleFork\}/);
+  assert.doesNotMatch(chatWindowSource, /idx === 0 && msg\.role === "user"/);
+  assert.doesNotMatch(chatWindowSource, /prevAssistantEntryId/);
+  assert.match(navigateSource, /type: "navigate_tree",\s*targetId: entryId/);
+  assert.match(navigateSource, /await loadSession\(sid\)/);
+});
+
+test("an empty persisted session displays the model it will use on first send", () => {
+  assert.match(
+    source,
+    /currentModel \?\? \(data\?\.context\.messages\.length === 0 \? newSessionDefaultModel : null\)/,
+  );
+  assert.match(source, /setNewSessionDefaultModel\(displayDefaultModel/);
+});
+
+test("the selector prefers the live wrapper model over persisted response metadata", () => {
+  assert.match(source, /model\?: \{ provider: string; id: string \}/);
+  assert.match(source, /const currentModel = currentModelOverride \?\? liveModel \?\? data\?\.context\.model \?\? pendingModel \?\? null/);
+  assert.match(source, /syncLiveModel\(liveState\)/);
+  assert.match(source, /syncLiveModel\(state\);[\s\S]*?const busy = data\.running/);
+});
+
 test("existing-session prompts rely on the persisted tool selection", () => {
   const sendSource = source.slice(
     source.indexOf("  const handleSend = useCallback"),
@@ -344,6 +372,24 @@ test("shows the latest streamed tool execution progress in the running phase", (
   assert.match(updateSource, /tools: \[\.\.\.tools\.filter\([\s\S]*?, updated\]/);
   assert.match(chatWindowSource, /if \(latest\?\.progress\)/);
   assert.match(chatWindowSource, /chat\.runningNamedTool[\s\S]*latest\.progress/);
+});
+
+test("reconnects active shell output to its streaming tool call", () => {
+  const updateSource = source.slice(
+    source.indexOf('case "tool_execution_update"'),
+    source.indexOf('case "tool_execution_end"'),
+  );
+  const endSource = source.slice(
+    source.indexOf('case "tool_execution_end"'),
+    source.indexOf('case "queue_update"'),
+  );
+
+  assert.match(updateSource, /name === "bash" \|\| name === "powershell"/);
+  assert.match(updateSource, /setActiveToolResults/);
+  assert.match(updateSource, /content,/);
+  assert.match(endSource, /setActiveToolResults[\s\S]*next\.delete\(id\)/);
+  assert.match(chatWindowSource, /const map = new Map\(activeToolResults\)/);
+  assert.match(chatWindowSource, /<MessageView message=\{streamState\.streamingMessage as AgentMessage\} toolResults=\{toolResultsMap\}/);
 });
 
 test("plays the enabled sound once for each extension dialog", () => {
