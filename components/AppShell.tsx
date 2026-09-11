@@ -13,6 +13,8 @@ import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
 import { ProjectTrustDialog } from "./ProjectTrustDialog";
 import { BranchNavigator, hasSessionBranches } from "./BranchNavigator";
 import { AgentSessionPanel } from "./AgentSessionPanel";
+import { SessionsDropdown, SessionsDropdownPanel } from "./SessionsDropdown";
+import { sessionsForProject } from "@/lib/project-groups";
 import { TerminalPanel } from "./TerminalPanel";
 import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTab } from "./terminal-tab-state";
 import { useTheme } from "@/hooks/useTheme";
@@ -123,6 +125,13 @@ export function AppShell() {
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
+  }, []);
+  const [unreadSessionIds, setUnreadSessionIds] = useState<Set<string>>(() => new Set());
+  const handleUnreadSessionIdsChange = useCallback((ids: Set<string>) => {
+    setUnreadSessionIds((previous) => {
+      if (previous.size === ids.size && [...ids].every((id) => previous.has(id))) return previous;
+      return ids;
+    });
   }, []);
   const sessionsWithSelection = useMemo(() => {
     if (!selectedSession) return sessionCatalog;
@@ -243,6 +252,7 @@ export function AppShell() {
   const topBarRef = useRef<HTMLDivElement>(null);
   const mobileToolbarRef = useRef<HTMLDivElement>(null);
   const actionsBtnRef = useRef<HTMLButtonElement>(null);
+  const sessionsBtnRef = useRef<HTMLButtonElement>(null);
   const selectionMenuRef = useRef<HTMLDivElement>(null);
 
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
@@ -303,7 +313,7 @@ export function AppShell() {
   }, []);
 
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "session" | "language" | "theme" | "actions" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"agents" | "branches" | "sessions" | "session" | "language" | "theme" | "actions" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   useEffect(() => {
@@ -319,7 +329,7 @@ export function AppShell() {
   }, [hasSubagentSessions]);
 
   const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "session" | "language" | "theme" | "actions",
+    panel: "agents" | "branches" | "sessions" | "session" | "language" | "theme" | "actions",
     keepMobileToolbarOpen = false,
   ) => {
     if (isMobile) setSidebarOpen(false);
@@ -386,12 +396,15 @@ export function AppShell() {
   }, [isMobile, isNarrowMobile, selectedSession?.id, newSessionDraftId]);
 
   useLayoutEffect(() => {
-    if (activeTopPanel !== "theme" && activeTopPanel !== "language" && activeTopPanel !== "actions") return;
+    if (activeTopPanel !== "theme" && activeTopPanel !== "language" && activeTopPanel !== "actions" && activeTopPanel !== "sessions") return;
     const menu = selectionMenuRef.current;
-    const trigger = actionsBtnRef.current;
+    const trigger = activeTopPanel === "sessions" ? sessionsBtnRef.current : actionsBtnRef.current;
     if (!menu || !trigger) return;
     const items = Array.from(menu.querySelectorAll<HTMLButtonElement>("[role=menuitemradio], [role=menuitem]"));
-    (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0])?.focus();
+    // The sessions panel keeps focus on its filter input instead of the first row.
+    if (activeTopPanel !== "sessions") {
+      (items.find((item) => item.getAttribute("aria-checked") === "true") ?? items[0])?.focus();
+    }
 
     const dismissOutside = (event: Event) => {
       if (event.composedPath().includes(menu) || event.composedPath().includes(trigger)) return;
@@ -430,6 +443,18 @@ export function AppShell() {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
       const topBarRect = topBarRef.current!.getBoundingClientRect();
+      if (activeTopPanel === "sessions" && !isMobile) {
+        const button = sessionsBtnRef.current;
+        if (!button) return;
+        const buttonRect = button.getBoundingClientRect();
+        const width = Math.min(360, topBarRect.width);
+        const left = Math.min(
+          buttonRect.left - 1,
+          Math.max(topBarRect.left, topBarRect.right - width),
+        );
+        setTopPanelPos({ top: topBarRect.bottom, left, width });
+        return;
+      }
       if ((activeTopPanel === "language" || activeTopPanel === "theme" || activeTopPanel === "actions") && !isMobile) {
         const button = actionsBtnRef.current;
         if (!button) return;
@@ -456,6 +481,7 @@ export function AppShell() {
     const ro = new ResizeObserver(update);
     ro.observe(topBarRef.current);
     if (actionsBtnRef.current) ro.observe(actionsBtnRef.current);
+    if (sessionsBtnRef.current) ro.observe(sessionsBtnRef.current);
     return () => ro.disconnect();
   }, [activeTopPanel, isMobile]);
 
@@ -523,6 +549,17 @@ export function AppShell() {
 
   const initialSessionId = initialNavigation.sessionId;
   const [activeCwd, setActiveCwd] = useState<string | null>(null);
+  // Sessions of the current project for the toolbar dropdown — scoped the same
+  // way SessionSidebar scoped its list (workspaceKeyOf matching).
+  const sessionsProjectKey = useMemo(() => {
+    if (selectedSession) return selectedSession.projectKey ?? workspaceKeyOf(selectedSession);
+    const cwd = newSessionCwd ?? activeCwd;
+    return cwd ? workspaceKeyOf({ cwd }) : null;
+  }, [selectedSession, newSessionCwd, activeCwd]);
+  const projectSessions = useMemo(
+    () => (sessionsProjectKey ? sessionsForProject(sessionCatalog, sessionsProjectKey) : []),
+    [sessionCatalog, sessionsProjectKey],
+  );
   const activeProjectKeyRef = useRef<string | null>(null);
   // True once the initial ?session= URL param has been resolved (or confirmed absent)
   const [initialSessionRestored, setInitialSessionRestored] = useState<boolean>(() => !initialSessionId);
@@ -1129,12 +1166,10 @@ export function AppShell() {
       <SessionSidebar
         selectedSessionId={selectedSession?.id ?? null}
         onSelectSession={handleSelectSession}
-        onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
-        onSessionDeleted={handleSessionDeleted}
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
@@ -1145,6 +1180,7 @@ export function AppShell() {
         onAtMentions={handleAtMentions}
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
+        onUnreadSessionIdsChange={handleUnreadSessionIdsChange}
         onSessionsChange={handleSessionsChange}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
@@ -1292,10 +1328,75 @@ export function AppShell() {
     );
   };
 
+  // + New session — first toolbar item per task; mirrors the sidebar New button.
+  const renderNewSessionButton = (mobile: boolean) => {
+    const effectiveCwd = selectedSession?.cwd ?? newSessionCwd ?? null;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          if (!effectiveCwd) return;
+          const tempId = typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+          handleNewSession(tempId, effectiveCwd);
+        }}
+        disabled={!effectiveCwd}
+        title={effectiveCwd ? translate("sidebar.newSessionTitle", { path: effectiveCwd }) : translate("sidebar.selectProject")}
+        aria-label={translate("sidebar.new")}
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
+          height: "100%", padding: mobile ? 0 : "0 12px",
+          background: "none", border: "none",
+          borderTop: "2px solid transparent",
+          borderRight: "1px solid var(--border)",
+          color: effectiveCwd ? "var(--text-muted)" : "var(--text-dim)",
+          cursor: effectiveCwd ? "pointer" : "not-allowed",
+          opacity: effectiveCwd ? 1 : 0.45,
+          flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
+          transition: "color 0.1s, background 0.1s, opacity 0.1s",
+        }}
+        onMouseEnter={(event) => {
+          if (!effectiveCwd) return;
+          event.currentTarget.style.color = "var(--text)";
+          event.currentTarget.style.background = "var(--bg-hover)";
+        }}
+        onMouseLeave={(event) => {
+          event.currentTarget.style.color = effectiveCwd ? "var(--text-muted)" : "var(--text-dim)";
+          event.currentTarget.style.background = "none";
+        }}
+        data-mobile-toolbar-action={mobile ? "new" : undefined}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" style={{ flexShrink: 0 }} aria-hidden="true">
+          <line x1="12" y1="4" x2="12" y2="20" />
+          <line x1="4" y1="12" x2="20" y2="12" />
+        </svg>
+        {!mobile && <span>{translate("sidebar.new")}</span>}
+      </button>
+    );
+  };
+
+  const renderSessionsTrigger = (mobile: boolean) => (
+    <SessionsDropdown
+      sessions={projectSessions}
+      selectedSessionId={selectedSession?.id ?? null}
+      runningSessionIds={runningSessionIds}
+      unreadSessionIds={unreadSessionIds}
+      disabled={mobile && !showChat}
+      open={activeTopPanel === "sessions"}
+      onToggle={() => toggleTopPanel("sessions", true)}
+      buttonRef={sessionsBtnRef}
+      dataMobileAction={mobile ? "sessions" : undefined}
+    />
+  );
+
   const renderChatToolbarActions = (mobile: boolean) => {
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
+        {mobile && renderNewSessionButton(true)}
+        {mobile && renderSessionsTrigger(true)}
         {(() => {
           // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
           const hasMessages = Boolean(
@@ -1943,6 +2044,8 @@ export function AppShell() {
           )}
           {!isMobile && (
             <>
+              {renderNewSessionButton(false)}
+              {renderSessionsTrigger(false)}
               {renderProjectTrustWarning(false)}
               {renderChatToolbarActions(false)}
               {renderSessionStatsButton(false)}
@@ -2063,6 +2166,20 @@ export function AppShell() {
                       <span>{translate(option.label)}</span>
                     </button>
                   ))}
+                </div>
+              )}
+              {activeTopPanel === "sessions" && (
+                <div ref={selectionMenuRef}>
+                  <SessionsDropdownPanel
+                    sessions={projectSessions}
+                    selectedSessionId={selectedSession?.id ?? null}
+                    runningSessionIds={runningSessionIds}
+                    unreadSessionIds={unreadSessionIds}
+                    onSelectSession={(session) => {
+                      setActiveTopPanel(null);
+                      handleSelectSession(session);
+                    }}
+                  />
                 </div>
               )}
               {activeTopPanel === "agents" && activeSessionFamily && selectedSession && (

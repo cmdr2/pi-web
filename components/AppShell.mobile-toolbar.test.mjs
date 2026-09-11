@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+const sessionsDropdownSource = await readFile(new URL("./SessionsDropdown.tsx", import.meta.url), "utf8");
 const mobileHookSource = await readFile(new URL("../hooks/useIsMobile.ts", import.meta.url), "utf8");
 
 test("keeps action icons inline in medium mobile sidebars", () => {
@@ -19,6 +20,10 @@ test("uses a compact narrow-mobile toolbar with a floating action layer", () => 
     /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: TOP_BAR_ICON_BUTTON_SIZE/,
   );
 
+  assert.match(source, /data-mobile-toolbar-action=\{mobile \? "new" : undefined\}/);
+  assert.match(source, /dataMobileAction=\{mobile \? "sessions" : undefined\}/);
+  assert.match(sessionsDropdownSource, /data-mobile-toolbar-action=\{dataMobileAction\}/);
+
   for (const action of ["name", "agents", "branches", "actions"]) {
     assert.match(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${action}"`));
   }
@@ -26,6 +31,22 @@ test("uses a compact narrow-mobile toolbar with a floating action layer", () => 
   for (const removed of ["history", "system", "tools", "theme", "language"]) {
     assert.doesNotMatch(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${removed}"`));
   }
+});
+
+test("places New and the Sessions dropdown first in the toolbar", () => {
+  // Desktop order: New → Sessions dropdown → Actions (inside chat toolbar actions).
+  const desktop = source.indexOf("{renderNewSessionButton(false)}");
+  const sessions = source.indexOf("{renderSessionsTrigger(false)}");
+  const actions = source.indexOf("{renderChatToolbarActions(false)}");
+  assert.ok(desktop >= 0 && sessions > desktop && actions > sessions);
+  assert.match(source, /const renderNewSessionButton = \(mobile: boolean\) => \{/);
+  assert.match(source, /handleNewSession\(tempId, effectiveCwd\)/);
+  assert.match(source, /disabled=\{!effectiveCwd\}/);
+  assert.match(source, /<SessionsDropdown[\s\S]*?open=\{activeTopPanel === "sessions"\}[\s\S]*?onToggle=\{\(\) => toggleTopPanel\("sessions", true\)\}/);
+  assert.match(source, /activeTopPanel === "sessions" && \(\s*<div ref=\{selectionMenuRef\}>\s*<SessionsDropdownPanel/);
+  // The panel is scoped to the current project.
+  assert.match(source, /sessionsForProject\(sessionCatalog, sessionsProjectKey\)/);
+  assert.match(source, /selectedSession\.projectKey \?\? workspaceKeyOf\(selectedSession\)/);
 });
 
 test("only renders the Agents switcher when the active session family has subagents", () => {
@@ -89,7 +110,7 @@ test("consolidates History, Theme and Language into an Actions dropdown", () => 
   assert.match(source, /toggleTopPanel\("language", true\)/);
   // The theme and language menus anchor to the Actions trigger.
   assert.match(source, /activeTopPanel !== "theme" && activeTopPanel !== "language" && activeTopPanel !== "actions"/);
-  assert.match(source, /const trigger = actionsBtnRef\.current/);
+  assert.match(source, /const trigger = activeTopPanel === "sessions" \? sessionsBtnRef\.current : actionsBtnRef\.current/);
   // System Prompt and Tools buttons and panels are gone.
   assert.doesNotMatch(source, /handleSystemInfoToggle|SystemPromptPanel|ToolDefinitionsPanel/);
   assert.doesNotMatch(source, /activeTopPanel === "system"|activeTopPanel === "tools"/);
