@@ -79,6 +79,16 @@ test("keeps the mobile action layer open after using an expanded action", () => 
   assert.match(source, /onClick=\{\(\) => toggleTopPanel\("session"\)\}/);
 });
 
+test("renders the folder total cost in brackets next to the session cost", () => {
+  assert.match(source, /const folderCostTotal = useMemo\(\(\) => \{[\s\S]*?getProjectCostTotal\([\s\S]*?currentSessionCost: sessionStats\?\.cost/);
+  assert.match(source, /const folderCostText = folderCostTotal - cost > 0\.005 \? formatCostValue\(folderCostTotal\) : null;/);
+  assert.match(source, /translate\("session\.folderCost"\)/);
+
+  // One bracket span for each top bar layout.
+  const bracketSpans = source.match(/\{folderCostText && \([\s\S]*?\({folderCostText}\)[\s\S]*?<\/span>\s*\)\}/g) ?? [];
+  assert.equal(bracketSpans.length, 2);
+});
+
 test("opens the theme selector as a shared menu with every palette", () => {
   assert.match(source, /activeTopPanel === "theme"/);
   assert.match(source, /role="menuitemradio"/);

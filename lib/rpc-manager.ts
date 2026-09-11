@@ -28,6 +28,7 @@ import type {
   SessionMessageEntry,
 } from "./types";
 import { createHeadlessCustomUiTui, DEFAULT_CUSTOM_UI_COLUMNS, type HeadlessCustomUiTui } from "./custom-ui-terminal";
+import { computeSessionStats } from "./session-stats";
 import {
   createSubagentExtension,
   preferPiWebSubagentExtension,
@@ -1885,6 +1886,7 @@ export function getRpcSessionInfos(): SessionInfo[] {
       created,
       modified: new Date(lastActivityMs).toISOString(),
       messageCount: messages.length,
+      cost: computeSessionStats(entries as unknown as SessionEntry[]).cost,
       firstMessage: firstUserMessage ? runtimeMessageText(firstUserMessage) || "(no messages)" : "(no messages)",
       ...(subagent ? {
         parentSessionId: subagent.parentSessionId,

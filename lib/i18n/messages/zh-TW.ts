@@ -159,6 +159,7 @@ export const zhTWLocale: LocalePlugin = {
     "session.cacheRead": "快取讀取",
     "session.cacheWrite": "快取寫入",
     "session.cost": "費用",
+    "session.folderCost": "資料夾費用",
     "session.context": "上下文",
     "session.cacheHitRate": "平均快取命中率",
     "session.copy": "複製{value}",

@@ -159,6 +159,7 @@ export const enLocale: LocalePlugin = {
     "session.cacheRead": "Cache Read",
     "session.cacheWrite": "Cache Write",
     "session.cost": "Cost",
+    "session.folderCost": "Folder total",
     "session.context": "Context",
     "session.cacheHitRate": "Avg cache hit rate",
     "session.copy": "Copy {value}",

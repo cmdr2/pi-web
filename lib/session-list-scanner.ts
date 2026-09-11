@@ -19,6 +19,8 @@ export interface ScannedSessionInfo {
 	modified: Date;
 	messageCount: number;
 	firstMessage: string;
+	/** Total usage cost across all entries in the session file. */
+	cost: number;
 	parentSessionPath?: string;
 }
 
@@ -72,6 +74,20 @@ function extractTextContent(message: RawEntry): string {
 		.join(" ");
 }
 
+// Mirrors `computeSessionStats` cost semantics: usage recorded on assistant and
+// tool-result messages, plus usage attached to compaction / branch-summary entries.
+function usageCostOf(entry: RawEntry): number {
+	const usage = (entry.type === "compaction" || entry.type === "branch_summary"
+		? entry
+		: entry.message) as RawEntry | undefined;
+	if (!isRecord(usage)) return 0;
+	const record = usage.usage;
+	if (!isRecord(record) || !isRecord(record.cost)) return 0;
+	return typeof record.cost.total === "number" && Number.isFinite(record.cost.total)
+		? record.cost.total
+		: 0;
+}
+
 function activityTimeOf(entry: RawEntry): number | undefined {
 	const message = entry.message as RawEntry | undefined;
 	if (
@@ -97,6 +113,7 @@ export async function scanSessionFileInfo(
 		let name: string | undefined;
 		let messageCount = 0;
 		let firstMessage = "";
+		let cost = 0;
 		let lastActivityTime: number | undefined;
 
 		const rl = createInterface({
@@ -120,8 +137,13 @@ export async function scanSessionFileInfo(
 						? entry.name.trim()
 						: undefined;
 			}
+			if (entry.type === "compaction" || entry.type === "branch_summary") {
+				cost += usageCostOf(entry);
+				continue;
+			}
 			if (entry.type !== "message") continue;
 			messageCount++;
+			cost += usageCostOf(entry);
 
 			const activityTime = activityTimeOf(entry);
 			if (typeof activityTime === "number") {
@@ -169,6 +191,7 @@ export async function scanSessionFileInfo(
 			created: new Date(header.timestamp as string),
 			modified,
 			messageCount,
+			cost,
 			firstMessage: firstMessage || "(no messages)",
 		};
 	} catch {
@@ -247,6 +270,7 @@ function loadPersistedIndex(): void {
 				(info.name !== undefined && typeof info.name !== "string") ||
 				(info.parentSessionPath !== undefined && typeof info.parentSessionPath !== "string") ||
 				typeof info.messageCount !== "number" || !Number.isSafeInteger(info.messageCount) || info.messageCount < 0 ||
+				typeof info.cost !== "number" || !Number.isFinite(info.cost) || info.cost < 0 ||
 				typeof info.created !== "string" || typeof info.modified !== "string"
 			) continue;
 			const created = new Date(info.created);
@@ -262,6 +286,7 @@ function loadPersistedIndex(): void {
 					parentSessionPath: info.parentSessionPath,
 					firstMessage: info.firstMessage,
 					messageCount: info.messageCount,
+					cost: info.cost,
 					created,
 					modified,
 				},

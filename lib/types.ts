@@ -317,6 +317,8 @@ export interface SessionInfo {
   modified: string;
   messageCount: number;
   firstMessage: string;
+  /** Total usage cost across all entries in the session file (0 when unknown). */
+  cost?: number;
   parentSessionId?: string; // source session for a fork, or parent session for a subagent
   /** How this session relates to another session. Forks remain top-level in the
    *  UI; only subagent relations form a visible parent/child tree. */

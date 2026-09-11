@@ -43,6 +43,7 @@ import {
   setLastOpenSession,
   workspaceKeyOf,
 } from "@/lib/workspace-memory";
+import { getProjectCostTotal } from "@/lib/project-groups";
 import {
   getDefaultRightPanelWidth,
   getRightPanelMaxWidth,
@@ -295,6 +296,15 @@ export function AppShell() {
   const handleSessionStatsChange = useCallback((stats: SessionStatsInfo | null) => {
     setSessionStats(stats);
   }, []);
+  // Total cost of every session in the folder (project) of the viewed session;
+  // shown in brackets next to the current session's cost in the top bar.
+  const folderCostTotal = useMemo(() => {
+    if (!selectedSession) return 0;
+    return getProjectCostTotal(sessionsWithSelection, workspaceKeyOf(selectedSession), {
+      currentSessionId: selectedSession.id,
+      currentSessionCost: sessionStats?.cost,
+    });
+  }, [sessionsWithSelection, selectedSession, sessionStats?.cost]);
   const [copiedSessionField, setCopiedSessionField] = useState<SessionCopyField | null>(null);
   const sessionCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleCopySessionField = useCallback((field: SessionCopyField, value: string) => {
@@ -1681,6 +1691,9 @@ export function AppShell() {
         ? `${(value / 1000).toFixed(0)}k`
         : String(value);
     const costText = cost > 0 ? (cost >= 0.01 ? `$${cost.toFixed(2)}` : `<$0.01`) : null;
+    const formatCostValue = (value: number) => value >= 0.01 ? `$${value.toFixed(2)}` : `<$0.01`;
+    // Only show the folder total once sessions other than the viewed one add cost.
+    const folderCostText = folderCostTotal - cost > 0.005 ? formatCostValue(folderCostTotal) : null;
 
     let contextColor = "var(--text-muted)";
     let desktopContextText: string | null = null;
@@ -1703,6 +1716,7 @@ export function AppShell() {
       tooltipParts.push(`cache write: ${tokens.cacheWrite.toLocaleString(locale)}`);
       if (cost > 0) tooltipParts.push(`cost: $${cost.toFixed(4)}`);
     }
+    if (folderCostText) tooltipParts.push(`${translate("session.folderCost")}: ${formatCostValue(folderCostTotal)}`);
     if (contextUsage?.contextWindow) {
       const percent = contextUsage.percent;
       tooltipParts.push(`context: ${percent !== null ? percent.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
@@ -1712,6 +1726,7 @@ export function AppShell() {
     const hasMobileValues = Boolean(
       (tokens && (tokens.input > 0 || tokens.output > 0))
       || costText
+      || folderCostText
       || mobileContextText,
     );
 
@@ -1777,6 +1792,11 @@ export function AppShell() {
                 {costText}
               </span>
             )}
+            {folderCostText && (
+              <span style={{ color: "var(--text-muted)", flexShrink: 0 }}>
+                ({folderCostText})
+              </span>
+            )}
             {mobileContextText && (
               <span style={{ color: contextColor, flexShrink: 0 }}>
                 {mobileContextText}
@@ -1817,6 +1837,11 @@ export function AppShell() {
             {costText && (
               <span style={{ display: "flex", alignItems: "center", color: "var(--text)", fontWeight: 500 }}>
                 {costText}
+              </span>
+            )}
+            {folderCostText && (
+              <span style={{ display: "flex", alignItems: "center", color: "var(--text-muted)" }}>
+                ({folderCostText})
               </span>
             )}
             {desktopContextText && (
