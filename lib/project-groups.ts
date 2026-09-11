@@ -51,3 +51,32 @@ export function sessionsForProject(
 ): SessionInfo[] {
   return sessions.filter((session) => workspaceKeyOf(session) === projectKey);
 }
+
+export interface ProjectCostTotalOptions {
+  /** Live cost of the session currently being viewed; replaces its stale list cost. */
+  currentSessionId?: string | null;
+  currentSessionCost?: number | null;
+}
+
+/**
+ * Total usage cost across every session in a project folder. The session being
+ * viewed contributes its live cost when provided, so the total stays in sync
+ * with the top-bar cost counter between session-list refreshes.
+ */
+export function getProjectCostTotal(
+  sessions: readonly SessionInfo[],
+  projectKey: string,
+  options: ProjectCostTotalOptions = {},
+): number {
+  const { currentSessionId, currentSessionCost } = options;
+  let total = 0;
+  for (const session of sessions) {
+    if (workspaceKeyOf(session) !== projectKey) continue;
+    if (currentSessionId && session.id === currentSessionId && typeof currentSessionCost === "number") continue;
+    total += session.cost ?? 0;
+  }
+  if (typeof currentSessionCost === "number") {
+    total += currentSessionCost;
+  }
+  return total;
+}

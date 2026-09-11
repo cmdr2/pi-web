@@ -162,6 +162,7 @@ async function loadAllSessions(): Promise<SessionInfo[]> {
       created: s.created.toISOString(),
       modified: s.modified.toISOString(),
       messageCount: s.messageCount,
+      cost: s.cost,
       firstMessage: s.firstMessage || "(no messages)",
       parentSessionId: originSessionId,
       ...(subagent
